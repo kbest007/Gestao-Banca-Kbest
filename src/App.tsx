@@ -9,42 +9,19 @@ import {
 import DashboardTab from './components/DashboardTab';
 import TransactionsTab from './components/TransactionsTab';
 import SettingsTab from './components/SettingsTab';
-import AuthScreen from './components/AuthScreen';
 import { formatCurrency } from './utils';
 import { 
-  TrendingUp, 
   Coins, 
-  Percent,
   Sliders,
   History,
   Activity,
-  LogOut,
-  Sparkles,
-  User,
-  Loader2,
   AlertTriangle,
-  X,
-  Check
+  Check,
+  Sparkles
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
-// Firebase Imports
-import { auth, db, handleFirestoreError, OperationType } from './firebase';
-import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
-import { 
-  doc, 
-  getDoc, 
-  setDoc, 
-  updateDoc, 
-  collection, 
-  query, 
-  onSnapshot, 
-  writeBatch 
-} from 'firebase/firestore';
-
 export default function App() {
-  const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
-  const [authLoading, setAuthLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'transactions' | 'settings'>('dashboard');
 
   // Unified Custom Alert & Confirmation dialog state
@@ -89,111 +66,76 @@ export default function App() {
     });
   };
 
-  // React states initialized with default values, populated via Firestore live sync
-  const [initialBalance, setInitialBalance] = useState<number>(DEFAULT_INITIAL_BALANCE);
-  const [presets, setPresets] = useState(DEFAULT_PRESETS);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [activeCycle, setActiveCycle] = useState<BettingCycle | null>(null);
-  const [completedCycles, setCompletedCycles] = useState<BettingCycle[]>([]);
+  // React states initialized directly from localStorage with factory fallbacks
+  const [initialBalance, setInitialBalance] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem('gestaogale:initialBalance');
+      return stored !== null ? parseFloat(stored) : DEFAULT_INITIAL_BALANCE;
+    } catch {
+      return DEFAULT_INITIAL_BALANCE;
+    }
+  });
 
-  // Set up Firebase Auth and Firestore syncing listener
+  const [presets, setPresets] = useState(() => {
+    try {
+      const stored = localStorage.getItem('gestaogale:presets');
+      return stored !== null ? JSON.parse(stored) : DEFAULT_PRESETS;
+    } catch {
+      return DEFAULT_PRESETS;
+    }
+  });
+
+  const [transactions, setTransactions] = useState<Transaction[]>(() => {
+    try {
+      const stored = localStorage.getItem('gestaogale:transactions');
+      return stored !== null ? JSON.parse(stored) : INITIAL_TRANSACTIONS;
+    } catch {
+      return INITIAL_TRANSACTIONS;
+    }
+  });
+
+  const [activeCycle, setActiveCycle] = useState<BettingCycle | null>(() => {
+    try {
+      const stored = localStorage.getItem('gestaogale:activeCycle');
+      return stored !== null ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const [completedCycles, setCompletedCycles] = useState<BettingCycle[]>(() => {
+    try {
+      const stored = localStorage.getItem('gestaogale:completedCycles');
+      return stored !== null ? JSON.parse(stored) : INITIAL_COMPLETED_CYCLES;
+    } catch {
+      return INITIAL_COMPLETED_CYCLES;
+    }
+  });
+
+  // Sync state changes to localStorage whenever they mutate
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setCurrentUser(user);
-      if (!user) {
-        setAuthLoading(false);
-        return;
-      }
+    localStorage.setItem('gestaogale:initialBalance', initialBalance.toString());
+  }, [initialBalance]);
 
-      setAuthLoading(true);
-      const userDocRef = doc(db, 'users', user.uid);
-      
-      // Initialize/verify user document exists in database
-      try {
-        const userDocSnap = await getDoc(userDocRef);
-        if (!userDocSnap.exists()) {
-          const batch = writeBatch(db);
-          
-          batch.set(userDocRef, {
-            userId: user.uid,
-            initialBalance: DEFAULT_INITIAL_BALANCE,
-            presets: DEFAULT_PRESETS,
-            activeCycle: null,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          });
+  useEffect(() => {
+    localStorage.setItem('gestaogale:presets', JSON.stringify(presets));
+  }, [presets]);
 
-          await batch.commit();
-        }
-      } catch (err) {
-        console.error("Erro no setup inicial do banco do usuário: ", err);
-      }
+  useEffect(() => {
+    localStorage.setItem('gestaogale:transactions', JSON.stringify(transactions));
+  }, [transactions]);
 
-      // Live Firestore snap listeners
-      const unsubUser = onSnapshot(userDocRef, (docSnap) => {
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          setInitialBalance(data.initialBalance ?? DEFAULT_INITIAL_BALANCE);
-          setPresets(data.presets ?? DEFAULT_PRESETS);
-          setActiveCycle(data.activeCycle ?? null);
-        }
-      }, (error) => {
-        handleFirestoreError(error, OperationType.GET, `users/${user.uid}`);
-      });
+  useEffect(() => {
+    if (activeCycle) {
+      localStorage.setItem('gestaogale:activeCycle', JSON.stringify(activeCycle));
+    } else {
+      localStorage.removeItem('gestaogale:activeCycle');
+    }
+  }, [activeCycle]);
 
-      const unsubTx = onSnapshot(
-        query(collection(db, 'users', user.uid, 'transactions')),
-        (snapshot) => {
-          const list: Transaction[] = [];
-          snapshot.forEach((subDoc) => {
-            list.push(subDoc.data() as Transaction);
-          });
-          // Sort transactions by internal timestamp or relative date ascending
-          list.sort((a, b) => {
-            const tA = (a as any).createdAt || a.date || '';
-            const tB = (b as any).createdAt || b.date || '';
-            return tA.localeCompare(tB);
-          });
-          setTransactions(list);
-        },
-        (error) => {
-          handleFirestoreError(error, OperationType.GET, `users/${user.uid}/transactions`);
-        }
-      );
-
-      const unsubCycles = onSnapshot(
-        query(collection(db, 'users', user.uid, 'completedCycles')),
-        (snapshot) => {
-          const list: BettingCycle[] = [];
-          snapshot.forEach((subDoc) => {
-            list.push(subDoc.data() as BettingCycle);
-          });
-          // Sort completed cycles by custom creation timestamp descending (newest first)
-          list.sort((a, b) => {
-            const tA = (a as any).createdAt || a.startDate || '';
-            const tB = (b as any).createdAt || b.startDate || '';
-            return tB.localeCompare(tA);
-          });
-          setCompletedCycles(list);
-          setAuthLoading(false);
-        },
-        (error) => {
-          handleFirestoreError(error, OperationType.GET, `users/${user.uid}/completedCycles`);
-        }
-      );
-
-      return () => {
-        unsubUser();
-        unsubTx();
-        unsubCycles();
-      };
-    }, (error) => {
-      console.error("Erro no estado de autenticação: ", error);
-      setAuthLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, []);
+  useEffect(() => {
+    localStorage.setItem('gestaogale:completedCycles', JSON.stringify(completedCycles));
+  }, [completedCycles]);
 
   // Derived current calculated balance
   const currentCalculatedBalance = useMemo(() => {
@@ -204,115 +146,75 @@ export default function App() {
 
   // Handle Updates
   const handleUpdateInitialBalance = async (amount: number) => {
-    if (!currentUser) return;
-    try {
-      const userDocRef = doc(db, 'users', currentUser.uid);
-      const batch = writeBatch(db);
+    setInitialBalance(amount);
+    
+    // Recalculate balanceAfter values for all transactions and sync changes
+    let running = amount;
+    const sortedTransactions = [...transactions].sort((a, b) => {
+      const tA = (a as any).createdAt || a.date || '';
+      const tB = (b as any).createdAt || b.date || '';
+      return tA.localeCompare(tB);
+    });
 
-      batch.update(userDocRef, {
-        initialBalance: amount,
-        updatedAt: new Date().toISOString()
-      });
+    const updatedTxList = sortedTransactions.map((t) => {
+      if (t.type === 'win' || t.type === 'deposit') {
+        running += t.amount;
+      } else {
+        running -= t.amount;
+      }
+      return {
+        ...t,
+        balanceAfter: running
+      };
+    });
 
-      // Recalculate balanceAfter values for all transactions and sync changes
-      let running = amount;
-      const sortedTransactions = [...transactions].sort((a, b) => {
-        const tA = (a as any).createdAt || a.date || '';
-        const tB = (b as any).createdAt || b.date || '';
-        return tA.localeCompare(tB);
-      });
-
-      sortedTransactions.forEach((t) => {
-        if (t.type === 'win' || t.type === 'deposit') {
-          running += t.amount;
-        } else {
-          running -= t.amount;
-        }
-        const txDocRef = doc(db, 'users', currentUser.uid, 'transactions', t.id);
-        batch.update(txDocRef, {
-          balanceAfter: running
-        });
-      });
-
-      await batch.commit();
-    } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, `users/${currentUser.uid}`);
-    }
+    setTransactions(updatedTxList);
   };
 
   const handleUpdatePresets = async (newPresets: any) => {
-    if (!currentUser) return;
-    try {
-      const userDocRef = doc(db, 'users', currentUser.uid);
-      await updateDoc(userDocRef, {
-        presets: newPresets,
-        updatedAt: new Date().toISOString()
-      });
-    } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, `users/${currentUser.uid}`);
-    }
+    setPresets(newPresets);
   };
 
   const handleAddTransaction = async (newTx: Omit<Transaction, 'id' | 'balanceAfter'>) => {
-    if (!currentUser) return;
-    try {
-      let nextCalculatedBalance = currentCalculatedBalance;
-      
-      if (newTx.type === 'win' || newTx.type === 'deposit') {
-        nextCalculatedBalance += newTx.amount;
-      } else {
-        nextCalculatedBalance -= newTx.amount;
-      }
-
-      const freshId = 'tx_' + Math.random().toString(36).substring(2, 9);
-      const freshTx: Transaction = {
-        ...newTx,
-        id: freshId,
-        balanceAfter: nextCalculatedBalance,
-      };
-
-      const txDocRef = doc(db, 'users', currentUser.uid, 'transactions', freshId);
-      await setDoc(txDocRef, {
-        ...freshTx,
-        userId: currentUser.uid,
-        createdAt: new Date().toISOString()
-      });
-    } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, `users/${currentUser.uid}/transactions`);
+    let nextCalculatedBalance = currentCalculatedBalance;
+    
+    if (newTx.type === 'win' || newTx.type === 'deposit') {
+      nextCalculatedBalance += newTx.amount;
+    } else {
+      nextCalculatedBalance -= newTx.amount;
     }
+
+    const freshId = 'tx_' + Math.random().toString(36).substring(2, 9);
+    const freshTx: Transaction = {
+      ...newTx,
+      id: freshId,
+      balanceAfter: nextCalculatedBalance,
+    };
+
+    setTransactions(prev => [...prev, freshTx]);
   };
 
   const handleDeleteTransaction = async (id: string) => {
-    if (!currentUser) return;
-
     triggerConfirm(
       'Excluir este Lançamento?',
       'Tem certeza de que deseja excluir permanentemente esta movimentação? O saldo das transações posteriores será recalculado automaticamente.',
       async () => {
-        try {
-          const batch = writeBatch(db);
-          const filtered = transactions.filter((tx) => tx.id !== id);
-          
-          const delTxRef = doc(db, 'users', currentUser.uid, 'transactions', id);
-          batch.delete(delTxRef);
+        const filtered = transactions.filter((tx) => tx.id !== id);
+        let running = initialBalance;
+        
+        const recalculated = filtered.map((tx) => {
+          if (tx.type === 'win' || tx.type === 'deposit') {
+            running += tx.amount;
+          } else {
+            running -= tx.amount;
+          }
+          return {
+            ...tx,
+            balanceAfter: running
+          };
+        });
 
-          let running = initialBalance;
-          filtered.forEach((tx) => {
-            if (tx.type === 'win' || tx.type === 'deposit') {
-              running += tx.amount;
-            } else {
-              running -= tx.amount;
-            }
-            const txDocRef = doc(db, 'users', currentUser.uid, 'transactions', tx.id);
-            batch.update(txDocRef, {
-              balanceAfter: running
-            });
-          });
-
-          await batch.commit();
-        } catch (err) {
-          handleFirestoreError(err, OperationType.DELETE, `users/${currentUser.uid}/transactions/${id}`);
-        }
+        setTransactions(recalculated);
       },
       'Excluir',
       'Cancelar',
@@ -322,54 +224,16 @@ export default function App() {
 
   // Preset operations
   const handleResetToDemoData = async () => {
-    if (!currentUser) return;
-    
     triggerConfirm(
       'Restaurar Dados de Demonstração?',
       'Tem certeza de que deseja restaurar as simulações e dados de demonstração de fábrica? Isso limpará seus lançamentos pessoais atuais.',
       async () => {
-        try {
-          const batch = writeBatch(db);
-
-          // Wipe current subcollections records asynchronously
-          transactions.forEach((tx) => {
-            batch.delete(doc(db, 'users', currentUser.uid, 'transactions', tx.id));
-          });
-          completedCycles.forEach((cycle) => {
-            batch.delete(doc(db, 'users', currentUser.uid, 'completedCycles', cycle.id));
-          });
-
-          const userDocRef = doc(db, 'users', currentUser.uid);
-          batch.update(userDocRef, {
-            initialBalance: DEFAULT_INITIAL_BALANCE,
-            presets: DEFAULT_PRESETS,
-            activeCycle: null,
-            updatedAt: new Date().toISOString()
-          });
-
-          INITIAL_TRANSACTIONS.forEach((tx) => {
-            const txRef = doc(collection(db, 'users', currentUser.uid, 'transactions'), tx.id);
-            batch.set(txRef, {
-              ...tx,
-              userId: currentUser.uid,
-              createdAt: new Date(tx.date).toISOString()
-            });
-          });
-
-          INITIAL_COMPLETED_CYCLES.forEach((cycle) => {
-            const cycleRef = doc(collection(db, 'users', currentUser.uid, 'completedCycles'), cycle.id);
-            batch.set(cycleRef, {
-              ...cycle,
-              userId: currentUser.uid,
-              createdAt: new Date(cycle.startDate).toISOString()
-            });
-          });
-
-          await batch.commit();
-          setActiveTab('dashboard');
-        } catch (err) {
-          handleFirestoreError(err, OperationType.WRITE, `users/${currentUser.uid}`);
-        }
+        setInitialBalance(DEFAULT_INITIAL_BALANCE);
+        setPresets(DEFAULT_PRESETS);
+        setActiveCycle(null);
+        setTransactions(INITIAL_TRANSACTIONS);
+        setCompletedCycles(INITIAL_COMPLETED_CYCLES);
+        setActiveTab('dashboard');
       },
       'Restaurar',
       'Cancelar',
@@ -378,35 +242,16 @@ export default function App() {
   };
 
   const handleClearAllData = async () => {
-    if (!currentUser) return;
-    
     triggerConfirm(
       'Zerar Toda a sua Banca?',
-      'Tem certeza de que deseja zerar TODA a sua banca? Essa ação apagará permanentemente todos os seus dados do banco de dados (redefinindo o saldo para R$ 0,00).',
+      'Tem certeza de que deseja zerar TODA a sua banca? Essa ação apagará permanentemente todos os seus dados salvos no navegador (redefinindo o saldo para R$ 0,00).',
       async () => {
-        try {
-          const batch = writeBatch(db);
-
-          transactions.forEach((tx) => {
-            batch.delete(doc(db, 'users', currentUser.uid, 'transactions', tx.id));
-          });
-          completedCycles.forEach((cycle) => {
-            batch.delete(doc(db, 'users', currentUser.uid, 'completedCycles', cycle.id));
-          });
-
-          const userDocRef = doc(db, 'users', currentUser.uid);
-          batch.update(userDocRef, {
-            initialBalance: 0,
-            presets: DEFAULT_PRESETS,
-            activeCycle: null,
-            updatedAt: new Date().toISOString()
-          });
-
-          await batch.commit();
-          setActiveTab('settings');
-        } catch (err) {
-          handleFirestoreError(err, OperationType.WRITE, `users/${currentUser.uid}`);
-        }
+        setInitialBalance(0);
+        setPresets(DEFAULT_PRESETS);
+        setActiveCycle(null);
+        setTransactions([]);
+        setCompletedCycles([]);
+        setActiveTab('settings');
       },
       'Zerar Tudo',
       'Cancelar',
@@ -416,7 +261,6 @@ export default function App() {
 
   // Active progression cycle state events
   const handleStartCycle = async () => {
-    if (!currentUser) return;
     const today = new Date();
     const yyyy = today.getFullYear();
     const mm = String(today.getMonth() + 1).padStart(2, '0');
@@ -434,33 +278,15 @@ export default function App() {
       }
     };
 
-    try {
-      const userDocRef = doc(db, 'users', currentUser.uid);
-      await updateDoc(userDocRef, {
-        activeCycle: freshCycle,
-        updatedAt: new Date().toISOString()
-      });
-    } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, `users/${currentUser.uid}`);
-    }
+    setActiveCycle(freshCycle);
   };
 
   const handleCancelActiveCycle = async () => {
-    if (!currentUser) return;
-    
     triggerConfirm(
       'Descartar Ciclo Ativo?',
       'Tem certeza de que deseja descartar este ciclo? Os dados não salvos deste ciclo ativo de 3 estágios serão apagados definitivamente.',
       async () => {
-        try {
-          const userDocRef = doc(db, 'users', currentUser.uid);
-          await updateDoc(userDocRef, {
-            activeCycle: null,
-            updatedAt: new Date().toISOString()
-          });
-        } catch (err) {
-          handleFirestoreError(err, OperationType.UPDATE, `users/${currentUser.uid}`);
-        }
+        setActiveCycle(null);
       },
       'Descartar',
       'Manter Ativo',
@@ -472,7 +298,7 @@ export default function App() {
     netResult: number,
     completedStage: EntryStage
   ) => {
-    if (!activeCycle || !currentUser) return;
+    if (!activeCycle) return;
     const stageNum = activeCycle.currentStage;
     
     const today = new Date();
@@ -508,122 +334,57 @@ export default function App() {
       }
     };
 
-    try {
-      const batch = writeBatch(db);
-      const userDocRef = doc(db, 'users', currentUser.uid);
+    // Save transaction
+    setTransactions(prev => [...prev, freshTx]);
 
-      // Save dynamic transaction
-      const txDocRef = doc(db, 'users', currentUser.uid, 'transactions', freshTxId);
-      batch.set(txDocRef, {
-        ...freshTx,
-        userId: currentUser.uid,
-        createdAt: new Date().toISOString()
-      });
+    if (isOverallWin) {
+      // Complete current cycle as WIN state
+      const updatedCycle: BettingCycle = {
+        ...activeCycle,
+        status: 'completed_win',
+        currentStage: stageNum as 1 | 2 | 3,
+        totalNetProfit: parseFloat(netResult.toFixed(2)),
+        stages: updatedStages
+      };
 
-      if (isOverallWin) {
-        // Complete current cycle as WIN state
+      setCompletedCycles(prev => [updatedCycle, ...prev]);
+      setActiveCycle(null);
+    } else {
+      if (stageNum === 1) {
+        setActiveCycle({
+          ...activeCycle,
+          currentStage: 2,
+          stages: updatedStages
+        });
+      } 
+      else if (stageNum === 2) {
+        setActiveCycle({
+          ...activeCycle,
+          currentStage: 3,
+          stages: updatedStages
+        });
+      } 
+      else {
+        // Stop Loss reached on Stage 3 loss
+        const calcTotalLoss = Math.abs(
+          parseFloat((updatedStages[1]?.winAmount || 0).toFixed(2)) +
+          parseFloat((updatedStages[2]?.winAmount || 0).toFixed(2)) +
+          parseFloat((updatedStages[3]?.winAmount || 0).toFixed(2))
+        );
+
         const updatedCycle: BettingCycle = {
           ...activeCycle,
-          status: 'completed_win',
-          currentStage: stageNum as 1 | 2 | 3,
-          totalNetProfit: parseFloat(netResult.toFixed(2)),
+          status: 'completed_loss',
+          currentStage: 3,
+          totalLoss: calcTotalLoss,
           stages: updatedStages
         };
 
-        const cycleDocRef = doc(db, 'users', currentUser.uid, 'completedCycles', activeCycle.id);
-        batch.set(cycleDocRef, {
-          ...updatedCycle,
-          userId: currentUser.uid,
-          createdAt: new Date().toISOString()
-        });
-
-        batch.update(userDocRef, {
-          activeCycle: null,
-          updatedAt: new Date().toISOString()
-        });
-      } else {
-        if (stageNum === 1) {
-          batch.update(userDocRef, {
-            activeCycle: {
-              ...activeCycle,
-              currentStage: 2,
-              stages: updatedStages
-            },
-            updatedAt: new Date().toISOString()
-          });
-        } 
-        else if (stageNum === 2) {
-          batch.update(userDocRef, {
-            activeCycle: {
-              ...activeCycle,
-              currentStage: 3,
-              stages: updatedStages
-            },
-            updatedAt: new Date().toISOString()
-          });
-        } 
-        else {
-          // Stop Loss reached on Stage 3 loss
-          const calcTotalLoss = Math.abs(
-            parseFloat((updatedStages[1]?.winAmount || 0).toFixed(2)) +
-            parseFloat((updatedStages[2]?.winAmount || 0).toFixed(2)) +
-            parseFloat((updatedStages[3]?.winAmount || 0).toFixed(2))
-          );
-
-          const updatedCycle: BettingCycle = {
-            ...activeCycle,
-            status: 'completed_loss',
-            currentStage: 3,
-            totalLoss: calcTotalLoss,
-            stages: updatedStages
-          };
-
-          const cycleDocRef = doc(db, 'users', currentUser.uid, 'completedCycles', activeCycle.id);
-          batch.set(cycleDocRef, {
-            ...updatedCycle,
-            userId: currentUser.uid,
-            createdAt: new Date().toISOString()
-          });
-
-          batch.update(userDocRef, {
-            activeCycle: null,
-            updatedAt: new Date().toISOString()
-          });
-        }
+        setCompletedCycles(prev => [updatedCycle, ...prev]);
+        setActiveCycle(null);
       }
-
-      await batch.commit();
-    } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, `users/${currentUser.uid}`);
     }
   };
-
-  const handleLogout = async () => {
-    triggerConfirm(
-      'Sair de sua Conta?',
-      'Tem certeza de que deseja desconectar o seu acesso de Gestão do dispositivo atual?',
-      async () => {
-        await signOut(auth);
-      },
-      'Desconectar',
-      'Cancelar',
-      'info'
-    );
-  };
-
-  // Rendering States
-  if (authLoading) {
-    return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
-        <Loader2 className="h-8 w-8 text-indigo-500 animate-spin mb-4" />
-        <p className="text-slate-400 text-xs font-black uppercase tracking-widest animate-pulse">Sincronizando Banco de Dados...</p>
-      </div>
-    );
-  }
-
-  if (!currentUser) {
-    return <AuthScreen />;
-  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50 relative pb-16">
@@ -649,7 +410,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* Connected User Profile and Running Balance Widgets */}
+          {/* Running Balance Widgets & Offline Badge */}
           <div className="flex items-center gap-3 flex-wrap">
             {/* Running Balance Widget */}
             <div className="flex items-center space-x-3.5 border border-slate-800 bg-slate-950/60 pl-4 pr-5 py-2 rounded-2xl shadow-inner shadow-slate-950 h-11">
@@ -664,19 +425,16 @@ export default function App() {
               </div>
             </div>
 
-            {/* Profile Info & Logout */}
-            <div className="flex items-center space-x-2.5 border border-slate-800 bg-slate-950/40 pl-3 pr-2 py-1.5 rounded-2xl h-11">
-              <div className="flex flex-col items-end">
-                <span className="text-[9px] text-slate-500 font-extrabold uppercase tracking-wider">Conta Conectada</span>
-                <span className="text-[11px] text-indigo-300 font-bold max-w-[120px] truncate">{currentUser.email}</span>
+            {/* Offline Database Safe badge */}
+            <div className="flex items-center space-x-2 border border-slate-800 bg-slate-950/40 pl-3 pr-4 py-1.5 rounded-2xl h-11 select-none">
+              <span className="flex h-2 w-2 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              <div className="flex flex-col items-start leading-none">
+                <span className="text-[8px] text-slate-500 font-black uppercase tracking-wider">Storage</span>
+                <span className="text-[10px] text-emerald-400 font-extrabold mt-0.5">Banco Local Salvo</span>
               </div>
-              <button
-                onClick={handleLogout}
-                title="Sair da Conta"
-                className="p-1.5 hover:bg-rose-500/10 text-slate-400 hover:text-rose-400 rounded-xl transition-all cursor-pointer"
-              >
-                <LogOut className="h-4 w-4" />
-              </button>
             </div>
           </div>
 
