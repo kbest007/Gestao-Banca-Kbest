@@ -9,6 +9,7 @@ import {
 import DashboardTab from './components/DashboardTab';
 import TransactionsTab from './components/TransactionsTab';
 import SettingsTab from './components/SettingsTab';
+import AuthScreen from './components/AuthScreen';
 import { formatCurrency } from './utils';
 import { 
   Coins, 
@@ -17,12 +18,40 @@ import {
   Activity,
   AlertTriangle,
   Check,
-  Sparkles
+  Sparkles,
+  LogOut,
+  User as UserIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { onAuthStateChanged, signOut, User } from 'firebase/auth';
+import { auth } from './firebase';
 
 export default function App() {
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'transactions' | 'settings'>('dashboard');
+
+  // Synchronise and monitor auth session state
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user && user.emailVerified) {
+        setCurrentUser(user);
+      } else {
+        setCurrentUser(null);
+      }
+      setAuthLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      setCurrentUser(null);
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   // Unified Custom Alert & Confirmation dialog state
   const [confirmModal, setConfirmModal] = useState<{
@@ -386,6 +415,23 @@ export default function App() {
     }
   };
 
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+        <div className="text-center space-y-4">
+          <div className="inline-flex items-center justify-center p-4 bg-indigo-600/10 text-indigo-400 rounded-3xl border border-indigo-500/20 animate-spin">
+            <Activity className="h-8 w-8 text-indigo-400 animate-pulse" />
+          </div>
+          <p className="text-xs text-indigo-400 font-extrabold tracking-widest uppercase animate-pulse">Carregando Sessão...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    return <AuthScreen onLoginSuccess={(user) => setCurrentUser(user)} />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50 relative pb-16">
       
@@ -436,6 +482,29 @@ export default function App() {
                 <span className="text-[10px] text-emerald-400 font-extrabold mt-0.5">Banco Local Salvo</span>
               </div>
             </div>
+
+            {/* Authenticated User info & Logout button */}
+            {currentUser && (
+              <div className="flex items-center space-x-2 border border-slate-800 bg-slate-950/40 pl-3 pr-2 py-1.5 rounded-2xl h-11 select-none">
+                <div className="p-1.5 bg-indigo-500/15 rounded-xl text-indigo-400">
+                  <UserIcon className="h-3.5 w-3.5" />
+                </div>
+                <div className="flex flex-col items-start leading-none max-w-[100px] sm:max-w-[160px] overflow-hidden">
+                  <span className="text-[8px] text-slate-500 font-black uppercase tracking-wider">Conta</span>
+                  <span className="text-[10px] text-slate-300 font-black truncate w-full mt-0.5" title={currentUser.email || ''}>
+                    {currentUser.email?.split('@')[0]}
+                  </span>
+                </div>
+                <button
+                  onClick={handleLogout}
+                  className="p-1 px-2.5 hover:bg-rose-500/10 text-slate-400 hover:text-rose-400 rounded-lg transition-all cursor-pointer font-extrabold text-[10px] flex items-center gap-1 shrink-0 ml-1.5"
+                  title="Sair da Conta"
+                >
+                  <LogOut className="h-3 w-3" />
+                  <span>Sair</span>
+                </button>
+              </div>
+            )}
           </div>
 
         </div>
