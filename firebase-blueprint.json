@@ -1,0 +1,96 @@
+{
+  "entities": {
+    "UserConfig": {
+      "title": "UserConfig",
+      "description": "Configuration and current active cycle state for a user",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "initialBalance": { "type": "number" },
+        "presets": {
+          "type": "object",
+          "properties": {
+            "stage1Base": { "type": "number" },
+            "stage1Protection": { "type": "number" },
+            "stage2Base": { "type": "number" },
+            "stage2Protection": { "type": "number" },
+            "stage3Base": { "type": "number" },
+            "stage3Protection": { "type": "number" }
+          },
+          "required": [
+            "stage1Base",
+            "stage1Protection",
+            "stage2Base",
+            "stage2Protection",
+            "stage3Base",
+            "stage3Protection"
+          ]
+        },
+        "activeCycle": {
+          "type": "object",
+          "description": "Current active cycle, or null if none",
+          "properties": {
+            "id": { "type": "string" },
+            "startDate": { "type": "string" },
+            "status": { "type": "string" },
+            "currentStage": { "type": "number" },
+            "stages": { "type": "object" }
+          },
+          "required": ["id", "startDate", "status", "currentStage", "stages"]
+        },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "initialBalance", "presets"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "A single financial event (win, loss, deposit, withdraw)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string", "enum": ["deposit", "withdraw", "win", "loss"] },
+        "amount": { "type": "number" },
+        "balanceAfter": { "type": "number" },
+        "date": { "type": "string" },
+        "description": { "type": "string" },
+        "cycleId": { "type": "string" },
+        "stageNumber": { "type": "number" },
+        "userId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "type", "amount", "balanceAfter", "date", "description", "userId"]
+    },
+    "CompletedCycle": {
+      "title": "CompletedCycle",
+      "description": "A fully resolved operation cycle (completed as win or loss)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "startDate": { "type": "string" },
+        "status": { "type": "string", "enum": ["completed_win", "completed_loss"] },
+        "currentStage": { "type": "number" },
+        "stages": { "type": "object" },
+        "totalLoss": { "type": "number" },
+        "totalNetProfit": { "type": "number" },
+        "userId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "startDate", "status", "currentStage", "stages", "userId"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "UserConfig",
+      "description": "Primary user state and presets"
+    },
+    "users/{userId}/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Subcollection of user financial transactions"
+    },
+    "users/{userId}/completedCycles/{cycleId}": {
+      "schema": "CompletedCycle",
+      "description": "Subcollection of user completed betting cycles"
+    }
+  }
+}

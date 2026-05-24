@@ -1,0 +1,76 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper: Valid ID checks to prevent poisoning / DoS attacks
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Helper: Auth assertions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Helper: Strict User Config verification
+    function isValidUserConfig(data) {
+      return data.keys().hasAll(['userId', 'initialBalance', 'presets']) &&
+             data.userId == request.auth.uid &&
+             data.initialBalance is number &&
+             data.presets is map;
+    }
+
+    // Helper: Transaction validation
+    function isValidTransaction(data) {
+      return data.keys().hasAll(['id', 'type', 'amount', 'balanceAfter', 'date', 'description', 'userId']) &&
+             data.id is string &&
+             data.userId == request.auth.uid &&
+             data.type is string &&
+             data.amount is number &&
+             data.balanceAfter is number;
+    }
+
+    // Helper: Completed Cycle validation
+    function isValidCompletedCycle(data) {
+      return data.keys().hasAll(['id', 'startDate', 'status', 'currentStage', 'stages', 'userId']) &&
+             data.id is string &&
+             data.userId == request.auth.uid &&
+             data.status is string &&
+             data.stages is map;
+    }
+
+    // Collection: Users Config
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUserConfig(request.resource.data);
+      allow update: if isOwner(userId) && isValidUserConfig(request.resource.data);
+      allow delete: if false; // Users cannot delete their records from the client directly
+
+      // Subcollection: Transactions
+      match /transactions/{transactionId} {
+        allow get: if isOwner(userId) && isValidId(transactionId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(transactionId) && isValidTransaction(request.resource.data);
+        allow update: if false; // Transactions are immutable once written to database
+        allow delete: if isOwner(userId) && isValidId(transactionId); // Allow clear-out/restart banca if reset
+      }
+
+      // Subcollection: Completed Cycles
+      match /completedCycles/{cycleId} {
+        allow get: if isOwner(userId) && isValidId(cycleId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(cycleId) && isValidCompletedCycle(request.resource.data);
+        allow update: if false; // Completed cycles cannot be mutated
+        allow delete: if isOwner(userId) && isValidId(cycleId); // Allow clearing completed history
+      }
+    }
+  }
+}
