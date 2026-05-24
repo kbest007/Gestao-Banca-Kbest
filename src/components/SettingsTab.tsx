@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { formatCurrency } from '../utils';
 import { Coins, ShieldAlert, RotateCcw, Trash2, Sliders, Check } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -42,6 +42,20 @@ export default function SettingsTab({
   const [st2Prot, setSt2Prot] = useState(presets.stage2Protection.toString());
   const [st3Base, setSt3Base] = useState(presets.stage3Base.toString());
   const [st3Prot, setSt3Prot] = useState(presets.stage3Protection.toString());
+
+  // Keep local inputs fully synchronized with dynamic Firebase DB updates
+  useEffect(() => {
+    setBalanceInput(initialBalance.toString());
+  }, [initialBalance]);
+
+  useEffect(() => {
+    setSt1Base(presets.stage1Base.toString());
+    setSt1Prot(presets.stage1Protection.toString());
+    setSt2Base(presets.stage2Base.toString());
+    setSt2Prot(presets.stage2Protection.toString());
+    setSt3Base(presets.stage3Base.toString());
+    setSt3Prot(presets.stage3Protection.toString());
+  }, [presets]);
 
   const handleSaveBalance = (e: React.FormEvent) => {
     e.preventDefault();

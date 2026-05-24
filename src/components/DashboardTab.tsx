@@ -887,7 +887,7 @@ export default function DashboardTab({
                       <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vert={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
                   <XAxis 
                     dataKey="name" 
                     stroke="#475569" 
@@ -942,7 +942,7 @@ export default function DashboardTab({
                   data={stats.stageWins}
                   margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
                 >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vert={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
                   <XAxis dataKey="name" stroke="#475569" tickLine={false} />
                   <YAxis stroke="#475569" tickLine={false} axisLine={false} />
                   <Tooltip 
